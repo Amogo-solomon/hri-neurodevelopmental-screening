@@ -1,0 +1,298 @@
+###############################################################################
+# Frontend Deployment (Next.js)
+###############################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hri-frontend
+  namespace: hri-platform
+  labels:
+    app: hri-frontend
+    component: ui
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hri-frontend
+  template:
+    metadata:
+      labels:
+        app: hri-frontend
+        component: ui
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      containers:
+        - name: frontend
+          image: ${ECR_REGISTRY}/hri-frontend:${IMAGE_TAG}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: hri-config
+                  key: api-url
+            - name: NEXT_PUBLIC_WS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: hri-config
+                  key: ws-url
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hri-frontend
+  namespace: hri-platform
+spec:
+  selector:
+    app: hri-frontend
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+---
+###############################################################################
+# Ollama VLM Deployment — GPU node
+###############################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hri-ollama
+  namespace: hri-platform
+  labels:
+    app: hri-ollama
+    component: vlm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hri-ollama
+  template:
+    metadata:
+      labels:
+        app: hri-ollama
+        component: vlm
+    spec:
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      nodeSelector:
+        role: vlm
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "8Gi"
+            limits:
+              cpu: "4000m"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /root/.ollama
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: ollama-models
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hri-ollama
+  namespace: hri-platform
+spec:
+  selector:
+    app: hri-ollama
+  ports:
+    - port: 11434
+      targetPort: 11434
+      name: http
+---
+###############################################################################
+# Persistent Volume Claims
+###############################################################################
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hri-uploads-pvc
+  namespace: hri-platform
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: efs-sc   # AWS EFS for multi-pod access
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: hri-platform
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gp3
+  resources:
+    requests:
+      storage: 50Gi
+---
+###############################################################################
+# Ingress — ALB with TLS, WAF, NHS-compliant headers
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hri-ingress
+  namespace: hri-platform
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERTIFICATE_ARN}
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/wafv2-acl-arn: ${WAF_ACL_ARN}
+    # Security headers
+    alb.ingress.kubernetes.io/response-header-modification-rules: |
+      [
+        {"action":{"type":"add-header","header":{"key":"Strict-Transport-Security","value":"max-age=31536000; includeSubDomains"}}},
+        {"action":{"type":"add-header","header":{"key":"X-Content-Type-Options","value":"nosniff"}}},
+        {"action":{"type":"add-header","header":{"key":"X-Frame-Options","value":"DENY"}}},
+        {"action":{"type":"add-header","header":{"key":"Content-Security-Policy","value":"default-src 'self'"}}},
+        {"action":{"type":"add-header","header":{"key":"Referrer-Policy","value":"strict-origin-when-cross-origin"}}}
+      ]
+    # Upload size limit
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=600
+spec:
+  rules:
+    - host: ${DOMAIN_NAME}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: hri-backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hri-frontend
+                port:
+                  number: 3000
+---
+###############################################################################
+# Namespace
+###############################################################################
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hri-platform
+  labels:
+    name: hri-platform
+    compliance: uk-gdpr-nhs-dsp
+---
+###############################################################################
+# ConfigMap
+###############################################################################
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hri-config
+  namespace: hri-platform
+data:
+  cors-origins: "https://${DOMAIN_NAME}"
+  api-url: "https://${DOMAIN_NAME}"
+  ws-url: "wss://${DOMAIN_NAME}"
+---
+###############################################################################
+# Network Policy — zero-trust, deny all ingress by default
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: hri-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal
+  namespace: hri-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: hri-platform
+---
+###############################################################################
+# Pod Disruption Budgets — high availability
+###############################################################################
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hri-backend-pdb
+  namespace: hri-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: hri-backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hri-frontend-pdb
+  namespace: hri-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: hri-frontend

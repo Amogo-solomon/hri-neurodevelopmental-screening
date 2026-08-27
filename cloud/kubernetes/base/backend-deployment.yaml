@@ -1,0 +1,144 @@
+###############################################################################
+# HRI Platform — Backend Deployment (FastAPI)
+# Namespace: hri-platform
+###############################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hri-backend
+  namespace: hri-platform
+  labels:
+    app: hri-backend
+    component: api
+    version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hri-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: hri-backend
+        component: api
+    spec:
+      serviceAccountName: hri-backend-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: backend
+          image: ${ECR_REGISTRY}/hri-backend:${IMAGE_TAG}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: ENVIRONMENT
+              value: "production"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hri-db-secret
+                  key: database-url
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hri-app-secret
+                  key: secret-key
+            - name: OLLAMA_BASE_URL
+              value: "http://hri-ollama:11434"
+            - name: UPLOAD_DIR
+              value: "/app/uploads"
+            - name: MAX_UPLOAD_SIZE_MB
+              value: "2048"
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: hri-config
+                  key: cors-origins
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: hri-uploads-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hri-backend
+  namespace: hri-platform
+spec:
+  selector:
+    app: hri-backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hri-backend-sa
+  namespace: hri-platform
+  annotations:
+    eks.amazonaws.com/role-arn: ${IAM_ROLE_ARN}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hri-backend-hpa
+  namespace: hri-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hri-backend
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

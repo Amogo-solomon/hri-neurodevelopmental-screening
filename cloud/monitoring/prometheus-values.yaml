@@ -1,0 +1,101 @@
+###############################################################################
+# HRI Platform — Prometheus Monitoring Stack
+# Deployed via Helm on EKS
+###############################################################################
+
+# prometheus-values.yaml — for kube-prometheus-stack Helm chart
+alertmanager:
+  enabled: true
+  config:
+    global:
+      resolve_timeout: 5m
+    receivers:
+      - name: default
+        # Add SNS/email/Slack receivers here
+    route:
+      receiver: default
+
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          resources:
+            requests:
+              storage: 50Gi
+    additionalScrapeConfigs:
+      - job_name: hri-backend
+        static_configs:
+          - targets: ["hri-backend.hri-platform.svc.cluster.local:8000"]
+        metrics_path: /metrics
+
+grafana:
+  enabled: true
+  adminPassword: "${GRAFANA_PASSWORD}"
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: hri-dashboards
+          orgId: 1
+          folder: HRI Platform
+          type: file
+          options:
+            path: /var/lib/grafana/dashboards/hri
+
+  dashboardsConfigMaps:
+    hri-dashboards: "hri-grafana-dashboards"
+---
+# ServiceMonitor for FastAPI backend
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hri-backend-monitor
+  namespace: hri-platform
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: hri-backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+# Alert rules
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: hri-platform-alerts
+  namespace: hri-platform
+spec:
+  groups:
+    - name: hri.availability
+      rules:
+        - alert: BackendDown
+          expr: up{job="hri-backend"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "HRI backend is down"
+            description: "FastAPI backend has been unreachable for >2m"
+
+        - alert: HighAnalysisFailureRate
+          expr: rate(analysis_jobs_failed_total[5m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High pipeline failure rate"
+
+        - alert: OllamaUnavailable
+          expr: ollama_health_check == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Ollama VLM service is unavailable"

@@ -1,0 +1,90 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hri_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/hri.db
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - UPLOAD_DIR=/app/uploads
+      - MAX_UPLOAD_SIZE_MB=8192
+      - SECRET_KEY=${SECRET_KEY}
+      - ENVIRONMENT=development
+      - CORS_ORIGINS=http://localhost:3000
+      - FIRST_ADMIN_EMAIL=${FIRST_ADMIN_EMAIL}
+      - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD}
+      #- VLM_MODEL=llava:13b
+      - VLM_MODEL=qwen2.5vl:7b
+      - VLM_TIMEOUT_SECONDS=3600
+      - VLM_NUM_CTX=${VLM_NUM_CTX}
+      - VLM_NUM_PREDICT=${VLM_NUM_PREDICT}
+    volumes:
+      - ./backend:/app
+      - hri_uploads:/app/uploads
+      - hri_data:/app/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - hri_net
+    # Increase default proxy buffer sizes for large video uploads
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hri_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - hri_net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: hri_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - hri_net
+    # GPU reservation removed for CPU-only personal machines. If this PC has
+    # an NVIDIA GPU with working WSL2 CUDA support, restore the block below:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #         devices:
+    #           - driver: nvidia
+    #             count: 1
+    #             capabilities: [gpu]
+    healthcheck:
+      # test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  hri_uploads:
+  hri_data:
+  ollama_models:
+
+networks:
+  hri_net:
+    driver: bridge
