@@ -59,15 +59,32 @@ Three containerised services via Docker Compose — no Kubernetes, no managed cl
 ### Prerequisites
 - Docker Desktop (WSL2 backend on Windows)
 - ~10–20GB free disk space per VLM you pull
-- An NVIDIA GPU is recommended for practical inference speed but not required — the pipeline runs on CPU, considerably slower
+- An NVIDIA GPU is optional — see "Two Compose configurations" below
 
 ### Setup
 
 ```bash
-git clone <your-repo-url>
-cd hri-platform
-cp .env.example .env   # set your own SECRET_KEY and admin credentials
+git clone https://github.com/Amogo-solomon/hri-neurodevelopmental-screening.git
+cd hri-neurodevelopmental-screening
+cp .env.example .env
+```
+
+**Edit `.env`** before starting — at minimum set a real `SECRET_KEY` (generate one with `python -c "import secrets; print(secrets.token_hex(32))"`) and your own `FIRST_ADMIN_EMAIL`/`FIRST_ADMIN_PASSWORD`.
+
+```bash
 docker compose up -d --build
+```
+
+### Two Compose configurations
+
+| File | Use when |
+|---|---|
+| `docker-compose.yml` | Default — runs on **any machine**, CPU-only, no GPU required. Use this to guarantee it runs regardless of hardware. |
+| `docker-compose.lab.yml` | For a machine with a working NVIDIA GPU + WSL2 CUDA support (e.g. the University of Lincoln GPU lab, RTX 4070). Faster inference. |
+
+To use the GPU version, add `-f docker-compose.lab.yml` to every Compose command:
+```bash
+docker compose -f docker-compose.lab.yml up -d --build
 ```
 
 ### Pull the models you need
@@ -80,6 +97,16 @@ docker exec hri_ollama ollama pull minicpm-v
 Confirm what's pulled at any point with:
 ```bash
 docker exec hri_ollama ollama list
+```
+
+### First login
+
+Log in with `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD` exactly as set in your `.env`. If login ever fails unexpectedly on a fresh setup, register a new account directly via the **Register** page instead — this path is independently verified working.
+
+If you ever change `FIRST_ADMIN_EMAIL`/`FIRST_ADMIN_PASSWORD` after the first run, they won't take effect until the database is reset (the admin account is only seeded once, on an empty database):
+```bash
+docker exec hri_backend rm -f /app/data/hri.db
+docker compose restart backend
 ```
 
 ### Access
