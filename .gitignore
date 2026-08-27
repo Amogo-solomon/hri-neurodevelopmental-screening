@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ﻿# Python
 __pycache__/
 *.py[cod]
@@ -23,10 +24,53 @@ venv.bak/
 uploads/
 storage/
 media/
+=======
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env *
+.env (copy)
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+.terraform.lock.hcl
+
+# Docker
+*.log
+
+# Uploads / data
+backend/uploads/
+backend/data/
+>>>>>>> c70423f (chore: add project scaffolding, env template, and CI/CD workflow)
 *.mp4
 *.avi
 *.mov
 *.mkv
+<<<<<<< HEAD
 
 # Frontend
 node_modules/
@@ -38,12 +82,16 @@ build/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+=======
+*.webm
+>>>>>>> c70423f (chore: add project scaffolding, env template, and CI/CD workflow)
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+<<<<<<< HEAD
 *~
 .DS_Store
 
@@ -61,3 +109,10 @@ temp/
 # Thesis files (if you want to keep separate)
 # *.docx
 # *.pdf
+=======
+
+# OS
+.DS_Store
+Thumbs.db
+*.pt
+>>>>>>> c70423f (chore: add project scaffolding, env template, and CI/CD workflow)

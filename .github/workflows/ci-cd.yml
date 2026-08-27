@@ -1,0 +1,281 @@
+###############################################################################
+# HRI Platform — GitHub Actions CI/CD Pipeline
+# Builds, tests, pushes to ECR, deploys to EKS
+# Secrets required: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+#   ECR_REGISTRY, EKS_CLUSTER_NAME, DOMAIN_NAME, ACM_CERTIFICATE_ARN,
+#   WAF_ACL_ARN, IAM_ROLE_ARN
+###############################################################################
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: eu-west-2
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  ###########################################################################
+  # 1 — Backend tests
+  ###########################################################################
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov httpx
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ -v \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=75
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: backend/coverage.xml
+
+  ###########################################################################
+  # 2 — Frontend tests & type-check
+  ###########################################################################
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: TypeScript type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+  ###########################################################################
+  # 3 — Security scanning
+  ###########################################################################
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy vulnerability scan — backend
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: backend/
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+      - name: Trivy vulnerability scan — frontend
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: frontend/
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+      - name: Bandit Python security audit
+        run: |
+          pip install bandit
+          bandit -r backend/app/ -ll -ii
+
+  ###########################################################################
+  # 4 — Build & push Docker images to ECR
+  ###########################################################################
+  build-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend, security-scan]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push — Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/hri-backend:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/hri-backend:latest
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Build & push — Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/hri-frontend:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/hri-frontend:latest
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://${{ secrets.DOMAIN_NAME }}
+            NEXT_PUBLIC_WS_URL=wss://${{ secrets.DOMAIN_NAME }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Image vulnerability scan (post-build)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/hri-backend:${{ env.IMAGE_TAG }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  ###########################################################################
+  # 5 — Terraform plan (PR) / apply (main)
+  ###########################################################################
+  terraform:
+    name: Terraform Infrastructure
+    runs-on: ubuntu-latest
+    needs: [build-push]
+    defaults:
+      run:
+        working-directory: cloud/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+
+      - name: Terraform Init
+        run: terraform init -backend-config="environments/prod/backend.hcl"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -var-file="environments/prod/terraform.tfvars" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve tfplan
+
+  ###########################################################################
+  # 6 — Deploy to EKS
+  ###########################################################################
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: [terraform]
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Substitute image tags in manifests
+        run: |
+          export ECR_REGISTRY="${{ env.ECR_REGISTRY }}"
+          export IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          export DOMAIN_NAME="${{ secrets.DOMAIN_NAME }}"
+          export ACM_CERTIFICATE_ARN="${{ secrets.ACM_CERTIFICATE_ARN }}"
+          export WAF_ACL_ARN="${{ secrets.WAF_ACL_ARN }}"
+          export IAM_ROLE_ARN="${{ secrets.IAM_ROLE_ARN }}"
+          envsubst < cloud/kubernetes/base/platform.yaml > /tmp/platform.yaml
+          envsubst < cloud/kubernetes/base/backend-deployment.yaml > /tmp/backend.yaml
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f /tmp/platform.yaml
+          kubectl apply -f /tmp/backend.yaml
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/hri-backend  -n hri-platform --timeout=300s
+          kubectl rollout status deployment/hri-frontend -n hri-platform --timeout=300s
+
+      - name: Smoke test — health endpoint
+        run: |
+          sleep 30
+          curl -sf https://${{ secrets.DOMAIN_NAME }}/api/v1/health | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', f'Health failed: {d}'"
+          echo "✅ Smoke test passed"
+
+      - name: Notify deployment
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          echo "Deployment to EKS: $STATUS — commit ${{ env.IMAGE_TAG }}"
