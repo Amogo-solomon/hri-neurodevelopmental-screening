@@ -1,7 +1,7 @@
-<<<<<<< HEAD
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
+*.pyo
 *.class
 *.so
 .Python
@@ -12,40 +12,29 @@ venv-*/
 ENV/
 env.bak/
 venv.bak/
-*.sqlite3
-*.db
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Uploads and media
-uploads/
-storage/
-media/
-=======
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-.venv/
-venv/
 *.egg-info/
 dist/
 build/
+*.sqlite3
+*.db
+
+# Testing
 .pytest_cache/
 .coverage
 coverage.xml
 htmlcov/
+.tox/
 
 # Node / Next.js
 node_modules/
 .next/
 out/
 *.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Environment
+# Environment (never commit real secrets)
 .env
 .env.local
 .env.*.local
@@ -59,60 +48,44 @@ out/
 *.tfplan
 .terraform.lock.hcl
 
-# Docker
-*.log
-
-# Uploads / data
+# Uploads / participant data — never commit real video or derived data
+uploads/
+storage/
+media/
 backend/uploads/
 backend/data/
->>>>>>> c70423f (chore: add project scaffolding, env template, and CI/CD workflow)
 *.mp4
 *.avi
 *.mov
 *.mkv
-<<<<<<< HEAD
-
-# Frontend
-node_modules/
-.next/
-out/
-dist/
-build/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-=======
 *.webm
->>>>>>> c70423f (chore: add project scaffolding, env template, and CI/CD workflow)
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-<<<<<<< HEAD
-*~
-.DS_Store
+# Extracted video frames (per-job folders, real child interaction images)
+frames_*/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
+# VLM analysis exports and raw response logs (real session data)
+vlm_exports/
+vlm_job*.txt
+vlm_responses.txt
+get_vlm.py
+save_vlm.py
+
+# Model weights
+*.pt
 
 # Temporary files
 tmp/
 temp/
 *.tmp
+*.log
+*~
+*.swp
+*.swo
 
-# Thesis files (if you want to keep separate)
-# *.docx
-# *.pdf
-=======
+# IDE
+.vscode/
+.idea/
 
 # OS
 .DS_Store
 Thumbs.db
-*.pt
->>>>>>> c70423f (chore: add project scaffolding, env template, and CI/CD workflow)
