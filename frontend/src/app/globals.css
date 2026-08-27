@@ -1,0 +1,202 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-inter: 'Inter', system-ui, sans-serif;
+
+    /* Dark theme (default) — matches the existing design exactly, no
+       visual change for anyone not using the new toggle.
+       Values are R G B triples (no commas/hex) so Tailwind's opacity
+       modifiers, e.g. bg-slate-900/60, can compose them via
+       rgb(var(--slate-900) / <alpha-value>) in tailwind.config.js. */
+    --slate-50:  248 250 252;
+    --slate-100: 241 245 249;
+    --slate-200: 226 232 240;
+    --slate-300: 203 213 225;
+    --slate-400: 148 163 184;
+    --slate-500: 100 116 139;
+    --slate-600: 71 85 105;
+    --slate-700: 51 65 85;
+    --slate-800: 30 41 59;
+    --slate-900: 15 23 42;
+    --slate-950: 2 6 23;
+    --color-white: 255 255 255;
+    --color-black: 0 0 0;
+  }
+
+  html.light {
+    /* Light theme — the slate scale is inverted so dark-surface classes
+       (bg-slate-900 cards, bg-slate-800 badges) become light surfaces,
+       and light-text classes (text-white headings) become dark text */
+    --slate-50:  15 23 42;
+    --slate-100: 30 41 59;
+    --slate-200: 51 65 85;
+    --slate-300: 71 85 105;
+    --slate-400: 100 116 139;
+    --slate-500: 148 163 184;
+    --slate-600: 203 213 225;
+    --slate-700: 226 232 240;
+    --slate-800: 241 245 249;
+    --slate-900: 248 250 252;
+    --slate-950: 255 255 255;
+    --color-white: 15 23 42;
+    --color-black: 255 255 255;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+  html.light {
+    color-scheme: light;
+  }
+
+  * {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+  }
+
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0f172a;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-slate-900/60 backdrop-blur-sm border border-slate-700/50 rounded-2xl;
+  }
+
+  .section-title {
+    @apply text-lg font-semibold text-white tracking-tight;
+  }
+
+  .metric-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+           bg-brand-600 hover:bg-brand-500 active:bg-brand-700
+           text-white font-medium text-sm
+           transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+           bg-slate-800 hover:bg-slate-700 border border-slate-600
+           text-slate-200 font-medium text-sm
+           transition-all duration-150;
+  }
+
+  .progress-bar {
+    @apply h-2 rounded-full bg-slate-800 overflow-hidden;
+  }
+  .progress-bar-fill {
+    @apply h-full rounded-full transition-all duration-500 ease-out;
+    background: linear-gradient(90deg, #2f7aff, #6366f1);
+  }
+}
+
+/* ── Print styles ──────────────────────────────────────────────────────────
+   Only #report-printable-area (rendered inside ResultsPanel) is printed.
+   Everything else — sidebar, nav, upload panel, export/print buttons,
+   and the raw frame-summaries panel — is hidden via .no-print / the
+   body::before override below. */
+@media print {
+  /* Hide everything by default, then reveal only the report subtree */
+  body * {
+    visibility: hidden;
+  }
+  #report-printable-area,
+  #report-printable-area * {
+    visibility: visible;
+  }
+  #report-printable-area {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0.4in;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* Convert the dark glass-card theme to a print-safe light layout */
+  html, body {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+  #report-printable-area .glass-card,
+  #report-printable-area [class*='glass-card'] {
+    background: #ffffff !important;
+    border: 1px solid #d1d5db !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    break-inside: avoid;
+  }
+  #report-printable-area h1,
+  #report-printable-area h2,
+  #report-printable-area h3,
+  #report-printable-area p,
+  #report-printable-area span,
+  #report-printable-area li {
+    color: #111827 !important;
+  }
+  #report-printable-area .text-slate-400,
+  #report-printable-area .text-slate-500 {
+    color: #4b5563 !important;
+  }
+
+  /* Any nested dark-slate badge/pill (e.g. ADOS code labels) that isn't
+     itself a .glass-card — without this, dark print text sits on a dark
+     background and becomes unreadable */
+  #report-printable-area [class*='bg-slate-7'],
+  #report-printable-area [class*='bg-slate-8'],
+  #report-printable-area [class*='bg-slate-9'] {
+    background: #e5e7eb !important;
+  }
+
+  /* Preserve meaningful colour (SHAP bars, risk badges, progress bars) —
+     browsers strip backgrounds by default unless explicitly told to keep them */
+  #report-printable-area svg,
+  #report-printable-area .progress-bar-fill,
+  #report-printable-area [class*='bg-'] {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Avoid splitting a card or chart across a page break where possible */
+  #report-printable-area > * {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 0.5in;
+  }
+}
