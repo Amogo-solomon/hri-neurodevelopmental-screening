@@ -10,10 +10,6 @@
 # decision made on UK GDPR grounds — the dataset contains special-category
 # video data of children collected under an approved ethics protocol. See the
 # dissertation's Methodology chapter (Scope Evolution) for the full reasoning.
-# An earlier version of this workflow included Terraform/EKS deployment jobs
-# reflecting an earlier, more ambitious proposal; those were removed here
-# since they described infrastructure that was never provisioned and could
-# never succeed without AWS credentials this project does not use.
 ###############################################################################
 
 name: CI Pipeline
@@ -25,9 +21,6 @@ on:
     branches: [main]
 
 jobs:
-  ###########################################################################
-  # 1 — Backend tests
-  ###########################################################################
   test-backend:
     name: Backend Tests
     runs-on: ubuntu-latest
@@ -43,16 +36,16 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
         run: pip install -r requirements.txt pytest pytest-asyncio httpx
 
       - name: Run tests
+        env:
+          PYTHONPATH: .
         run: pytest tests/ -v
 
-  ###########################################################################
-  # 2 — Frontend tests & type-check
-  ###########################################################################
   test-frontend:
     name: Frontend Tests
     runs-on: ubuntu-latest
@@ -68,6 +61,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
@@ -81,9 +75,6 @@ jobs:
       - name: Build
         run: npm run build
 
-  ###########################################################################
-  # 3 — Security scanning (informational — does not block the pipeline)
-  ###########################################################################
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
