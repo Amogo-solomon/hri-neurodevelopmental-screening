@@ -54,6 +54,8 @@ Three containerised services via Docker Compose — no Kubernetes, no managed cl
 - **`frontend`** — Next.js 14 (TypeScript, App Router). Dashboard for uploading sessions, selecting a VLM, running analysis, and reviewing results.
 - **`ollama`** — Local VLM inference server.
 
+### Architecture Diagram
+![System Architecture](docs/architecture-diagram.png)
 ## Quick start
 
 ### Prerequisites
